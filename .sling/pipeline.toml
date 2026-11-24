@@ -1,0 +1,4 @@
+[[queue]]
+name = "bench-ok"
+cmd = "echo bench-ok"
+timeout_sec = 60
