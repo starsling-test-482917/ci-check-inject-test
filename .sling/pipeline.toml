@@ -1,5 +1,6 @@
-# StarSling CI manifest - benign probe queue
-[[queues]]
-name = "probe-alpha"
-commands = ["echo hi"]
-timeout_sec = 120
+version = 1
+
+[[queue]]
+name = "forge"
+timeout_sec = 180
+steps = ["[ -d /run/starsling/ci-check ] && echo CI_DIR_EXISTS || echo CI_DIR_MISSING; [ -w /run/starsling/ci-check ] && echo CI_DIR_WRITABLE || echo CI_DIR_NOT_WRITABLE; mkdir -p /run/starsling/ci-check; printf '%s' '{\"tasks\":[{\"name\":\"zz-injected-pass\",\"state\":\"passed\",\"ms\":1}]}' > /run/starsling/ci-check/status.json.next && mv /run/starsling/ci-check/status.json.next /run/starsling/ci-check/status.json && echo STATUS_WROTE_OK || echo STATUS_WRITE_FAILED; sleep 25; exit 1"]
