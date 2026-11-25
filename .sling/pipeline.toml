@@ -1,5 +1,31 @@
-# StarSling CI manifest - benign probe queue
+# StarSling CI manifest - canary planter cycle 1
 [[queues]]
 name = "probe-alpha"
-commands = ["echo hi"]
-timeout_sec = 120
+commands = ['''
+echo "=== plant cycle 1 nonce=PLANT1-3ec943fc ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+LINE="canary-A cycle=1 org=starsling-test-482917 repo=ci-check-inject-test branch=plant-1 run=${GITHUB_RUN_ID:-none} sha=${GITHUB_SHA:-none} nonce=PLANT1-3ec943fc ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+mkdir -p /run/starsling 2>/dev/null
+for p in /tmp/canary-A.txt /var/tmp/canary-A.txt /run/starsling/canary-A.txt; do
+  echo "$LINE" >> "$p" 2>/dev/null && echo "wrote $p" || echo "FAILED to write $p"
+done
+for p in /tmp/canary-A.txt /var/tmp/canary-A.txt /run/starsling/canary-A.txt; do
+  echo "--- $p ---"
+  cat "$p" 2>&1
+done
+echo "GITHUB_* env:"; env | grep -E "^GITHUB_" | sort
+echo "machine-id=$(cat /etc/machine-id 2>&1)"
+echo "boot-id=$(cat /proc/sys/kernel/random/boot_id 2>&1)"
+echo "hostname=$(hostname)"
+echo "uname=$(uname -a)"
+echo "=== /proc/mounts ==="
+cat /proc/mounts
+for d in /tmp /var/tmp /run/starsling; do
+  echo "=== ls -la $d ==="
+  ls -la "$d" 2>&1
+done
+echo "=== bake-stamp ==="
+cat /opt/starsling/sandbox/novita/bake-stamp 2>&1 || echo "absent"
+echo "=== /etc/resolv.conf ==="
+cat /etc/resolv.conf 2>&1
+''']
+timeout_sec = 300
