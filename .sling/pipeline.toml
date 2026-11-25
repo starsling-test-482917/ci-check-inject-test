@@ -1,6 +1,6 @@
 version = 1
 
 [[queue]]
-name = "bench-ok"
+name = "md-spoof"
 timeout_sec = 60
-steps = ["echo bench-ok"]
+steps = ["echo CONTROL-BENIGN-FAILURE-7f3a >&2; exit 1"]
